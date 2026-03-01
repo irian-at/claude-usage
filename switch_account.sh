@@ -137,7 +137,7 @@ if [ -s "$RESUME_TTYS_FILE" ]; then
 
     TTY_LIST=$(sed 's/.*/"&"/' "$RESUME_TTYS_FILE" | paste -sd, -)
 
-    if pgrep -q iTerm2 2>/dev/null; then
+    if pgrep -f iTerm2 >/dev/null 2>&1; then
         osascript <<ENDSCRIPT || echo "Failed to auto-resume in iTerm2."
 tell application "iTerm2"
     set ttyList to {$TTY_LIST}
@@ -154,7 +154,7 @@ tell application "iTerm2"
     end repeat
 end tell
 ENDSCRIPT
-    elif pgrep -qx Terminal 2>/dev/null; then
+    elif pgrep -f Terminal.app >/dev/null 2>&1; then
         osascript <<ENDSCRIPT || echo "Failed to auto-resume in Terminal.app."
 tell application "Terminal"
     set ttyList to {$TTY_LIST}
