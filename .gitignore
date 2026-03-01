@@ -1,0 +1,6 @@
+profiles/
+accounts.json
+usage_latest.json
+check.log
+__pycache__/
+*.pyc
