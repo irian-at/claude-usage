@@ -28,10 +28,33 @@ API_HEADERS = {
 }
 
 
+def create_accounts_interactive() -> list[dict]:
+    import re
+    print("No accounts.json found. Let's set up your accounts.\n")
+    accounts = []
+    while True:
+        name = input("  Account name (e.g. 'Personal', 'Work') [empty to finish]: ").strip()
+        if not name:
+            break
+        email = input("  Email address: ").strip()
+        if not email:
+            break
+        account_id = re.sub(r"[^a-z0-9-]", "", name.lower().replace(" ", "-"))
+        accounts.append({"name": name, "id": account_id, "email": email})
+        print(f"  Added '{name}' ({email})\n")
+
+    if not accounts:
+        print("No accounts added. Exiting.")
+        sys.exit(1)
+
+    CONFIG_PATH.write_text(json.dumps(accounts, indent=2))
+    print(f"Saved {len(accounts)} account(s) to {CONFIG_PATH}\n")
+    return accounts
+
+
 def load_accounts() -> list[dict]:
     if not CONFIG_PATH.exists():
-        print(f"Missing {CONFIG_PATH} — create it first.")
-        sys.exit(1)
+        return create_accounts_interactive()
     return json.loads(CONFIG_PATH.read_text())
 
 
@@ -244,13 +267,20 @@ def print_result(result: dict) -> None:
 async def main() -> None:
     accounts = load_accounts()
 
+    needs_setup = [a for a in accounts if not state_path(a).exists()]
     if len(sys.argv) > 1 and sys.argv[1] == "setup":
-        for account in accounts:
+        needs_setup = accounts
+
+    if needs_setup:
+        names = ", ".join(a["name"] for a in needs_setup)
+        print(f"Accounts need login: {names}\n")
+        for account in needs_setup:
             success = await setup_account(account)
             if not success:
                 print(f"  Skipped '{account['name']}'. Re-run setup to retry.")
-        print("\nSetup complete. Run without arguments to check usage.")
-        return
+        print("\nSetup complete.")
+        if len(sys.argv) > 1 and sys.argv[1] == "setup":
+            return
 
     print("Checking Claude.ai usage...\n")
     print("=" * 60)
