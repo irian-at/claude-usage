@@ -99,7 +99,7 @@ CURRENT_TTY=$(tty 2>/dev/null | sed 's|^/dev/||' || echo "none")
 RESUME_TTYS_FILE=$(mktemp)
 CLAUDE_PIDS=$(pgrep -x claude 2>/dev/null || true)
 if [ -n "$CLAUDE_PIDS" ]; then
-    ps -o tty= $CLAUDE_PIDS 2>/dev/null | tr -d ' ' | grep -v '^$' | grep -v '^\?\?$' | sort -u | while IFS= read -r t; do
+    for pid in $CLAUDE_PIDS; do ps -o tty= -p "$pid" 2>/dev/null; done | tr -d ' ' | grep -v '^$' | grep -v '^\?\?$' | sort -u | while IFS= read -r t; do
         [ "$t" != "$CURRENT_TTY" ] && echo "/dev/$t"
     done > "$RESUME_TTYS_FILE" || true
 fi
@@ -116,8 +116,8 @@ pkill -TERM -x claude 2>/dev/null || true
 sleep 2
 
 # Verify they're gone
-REMAINING=$(pgrep -x claude 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-if [ "$REMAINING" -gt 0 ]; then
+REMAINING=$(pgrep -cx claude 2>/dev/null) || true
+if [ "$REMAINING" -gt 0 ] 2>/dev/null; then
     echo "Warning: $REMAINING claude processes still running. Waiting..."
     sleep 3
     pkill -TERM -x claude 2>/dev/null || true
@@ -137,40 +137,53 @@ if [ -s "$RESUME_TTYS_FILE" ]; then
 
     TTY_LIST=$(sed 's/.*/"&"/' "$RESUME_TTYS_FILE" | paste -sd, -)
 
-    if pgrep -f iTerm2 >/dev/null 2>&1; then
-        osascript <<ENDSCRIPT || echo "Failed to auto-resume in iTerm2."
-tell application "iTerm2"
-    set ttyList to {$TTY_LIST}
-    repeat with w in windows
-        repeat with t in tabs of w
-            repeat with s in sessions of t
+    osascript <<ENDSCRIPT
+set ttyList to {$TTY_LIST}
+set resumed to false
+
+tell application "System Events"
+    set iTerm2Running to (exists process "iTerm2")
+    set terminalRunning to (exists process "Terminal")
+end tell
+
+if iTerm2Running then
+    tell application "iTerm2"
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    try
+                        if tty of s is in ttyList then
+                            write text "claude --resume" in s
+                            set resumed to true
+                        end if
+                    end try
+                end repeat
+            end repeat
+        end repeat
+    end tell
+end if
+
+if terminalRunning then
+    tell application "Terminal"
+        repeat with w in windows
+            repeat with t in tabs of w
                 try
-                    if tty of s is in ttyList then
-                        write text "claude --resume" in s
+                    if tty of t is in ttyList then
+                        do script "claude --resume" in t
+                        set resumed to true
                     end if
                 end try
             end repeat
         end repeat
-    end repeat
-end tell
+    end tell
+end if
+
+if not resumed then
+    error "No matching terminal sessions found"
+end if
 ENDSCRIPT
-    elif pgrep -f Terminal.app >/dev/null 2>&1; then
-        osascript <<ENDSCRIPT || echo "Failed to auto-resume in Terminal.app."
-tell application "Terminal"
-    set ttyList to {$TTY_LIST}
-    repeat with w in windows
-        repeat with t in tabs of w
-            try
-                if tty of t is in ttyList then
-                    do script "claude --resume" in t
-                end if
-            end try
-        end repeat
-    end repeat
-end tell
-ENDSCRIPT
-    else
-        echo "Could not detect terminal app. Run 'claude --resume' in your terminals."
+    if [ $? -ne 0 ]; then
+        echo "Could not auto-resume. Run 'claude --resume' in your terminals."
     fi
 else
     echo ""
