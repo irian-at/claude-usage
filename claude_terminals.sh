@@ -95,9 +95,12 @@ list_terminals() {
             state="IDLE"
         fi
 
+        cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | grep '^n' | cut -c2-)
+        project=$(basename "$cwd" 2>/dev/null || echo "?")
+
         idx=$((idx + 1))
         TERMINAL_LIST+=("$tty")
-        echo "  [$idx] $tty  $state"
+        echo "  [$idx] $tty  $state  $project ($cwd)"
     done
     echo ""
 }
