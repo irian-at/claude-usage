@@ -43,13 +43,25 @@ if terminalRunning and not sent then
             repeat with t in tabs of w
                 try
                     if tty of t is targetTTY then
-                        do script "$message" in t
+                        set selected of t to true
+                        set index of w to 1
                         set sent to true
                     end if
                 end try
             end repeat
         end repeat
     end tell
+    if sent then
+        tell application "Terminal" to activate
+        delay 0.5
+        tell application "System Events"
+            tell process "Terminal"
+                keystroke "$message"
+                delay 0.2
+                key code 36
+            end tell
+        end tell
+    end if
 end if
 
 return sent
