@@ -56,6 +56,8 @@ if terminalRunning and not sent then
         delay 0.5
         tell application "System Events"
             tell process "Terminal"
+                key code 36
+                delay 0.3
                 keystroke "$message"
                 delay 0.2
                 key code 36
