@@ -39,7 +39,7 @@ for account in data['accounts']:
         session_pct = session.get('utilization', 0)
         weekly_pct = weekly.get('utilization', 0)
 
-        entry = {'email': email, 'name': account['name'], 'session_pct': session_pct, 'weekly_pct': weekly_pct}
+        entry = {'email': email, 'session_pct': session_pct, 'weekly_pct': weekly_pct}
 
         session_resets_at = session.get('resets_at')
         weekly_resets_at = weekly.get('resets_at')
@@ -64,11 +64,11 @@ if eligible:
     eligible.sort(key=lambda c: c['weekly_pct'])
     best = eligible[0]
     status = f'session {best[\"session_pct\"]:.0f}%, weekly {best[\"weekly_pct\"]:.0f}%'
-    print(f'{best[\"email\"]}|{best[\"name\"]}|{status}')
+    print(f'{best[\"email\"]}|{status}')
 else:
     print('All accounts are at their limits:', file=sys.stderr)
     for b in blocked:
-        print(f'  {b[\"name\"]}: session {b[\"session_pct\"]:.0f}%, weekly {b[\"weekly_pct\"]:.0f}% ({b[\"reset_info\"]})', file=sys.stderr)
+        print(f'  {b[\"email\"]}: session {b[\"session_pct\"]:.0f}%, weekly {b[\"weekly_pct\"]:.0f}% ({b[\"reset_info\"]})', file=sys.stderr)
 ")
 
 if [ -z "$BEST" ]; then
@@ -79,14 +79,13 @@ if [ -z "$BEST" ]; then
 fi
 
 BEST_EMAIL=$(echo "$BEST" | cut -d'|' -f1)
-BEST_NAME=$(echo "$BEST" | cut -d'|' -f2)
-BEST_STATUS=$(echo "$BEST" | cut -d'|' -f3)
+BEST_STATUS=$(echo "$BEST" | cut -d'|' -f2)
 
 # Check current account
 CURRENT_EMAIL=$(claude auth status 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('email',''))" 2>/dev/null || echo "")
 
 echo ""
-echo "Best account: $BEST_NAME ($BEST_EMAIL) — $BEST_STATUS"
+echo "Best account: $BEST_EMAIL ($BEST_STATUS)"
 echo "Current account: $CURRENT_EMAIL"
 
 if [ "$CURRENT_EMAIL" = "$BEST_EMAIL" ]; then
@@ -126,8 +125,13 @@ fi
 
 echo "All Claude instances stopped."
 echo ""
-echo "Logging in as $BEST_NAME ($BEST_EMAIL)..."
-claude auth login --email "$BEST_EMAIL"
+echo "Logging in as $BEST_EMAIL..."
+echo ""
+echo "Run this command to complete the login (you need to paste the code):"
+echo ""
+echo "  claude auth login --email \"$BEST_EMAIL\""
+echo ""
+read -p "Press Enter after you've completed the login..." _dummy
 
 # Resume claude in terminals where it was running
 if [ -s "$RESUME_TTYS_FILE" ]; then
@@ -135,9 +139,31 @@ if [ -s "$RESUME_TTYS_FILE" ]; then
     echo ""
     echo "Resuming claude in $TTY_COUNT terminal(s)..."
 
-    TTY_LIST=$(sed 's/.*/"&"/' "$RESUME_TTYS_FILE" | paste -sd, -)
+    RESUMED=0
 
-    osascript <<ENDSCRIPT
+    # Try tmux first: match TTYs to tmux panes
+    if command -v tmux &>/dev/null && tmux list-sessions &>/dev/null 2>&1; then
+        while IFS= read -r target_tty; do
+            # tmux list-panes gives us pane_tty for each pane
+            PANE_ID=$(tmux list-panes -a -F '#{pane_tty} #{pane_id}' 2>/dev/null | while IFS=' ' read -r pane_tty pane_id; do
+                if [ "$pane_tty" = "$target_tty" ]; then
+                    echo "$pane_id"
+                    break
+                fi
+            done)
+            if [ -n "$PANE_ID" ]; then
+                tmux send-keys -t "$PANE_ID" "claude-yolo --resume" Enter
+                echo "  Resumed in tmux pane $PANE_ID ($target_tty)"
+                RESUMED=$((RESUMED + 1))
+            fi
+        done < "$RESUME_TTYS_FILE"
+    fi
+
+    # For any TTYs not handled by tmux, try iTerm2/Terminal.app via AppleScript
+    if [ "$RESUMED" -lt "$TTY_COUNT" ]; then
+        TTY_LIST=$(sed 's/.*/"&"/' "$RESUME_TTYS_FILE" | paste -sd, -)
+
+        osascript <<ENDSCRIPT 2>/dev/null && true
 set ttyList to {$TTY_LIST}
 set resumed to false
 
@@ -153,7 +179,7 @@ if iTerm2Running then
                 repeat with s in sessions of t
                     try
                         if tty of s is in ttyList then
-                            write text "claude --resume" in s
+                            write text "claude-yolo --resume" in s
                             set resumed to true
                         end if
                     end try
@@ -169,7 +195,7 @@ if terminalRunning then
             repeat with t in tabs of w
                 try
                     if tty of t is in ttyList then
-                        do script "claude --resume" in t
+                        do script "claude-yolo --resume" in t
                         set resumed to true
                     end if
                 end try
@@ -182,8 +208,9 @@ if not resumed then
     error "No matching terminal sessions found"
 end if
 ENDSCRIPT
-    if [ $? -ne 0 ]; then
-        echo "Could not auto-resume. Run 'claude --resume' in your terminals."
+        if [ $? -ne 0 ] && [ "$RESUMED" -eq 0 ]; then
+            echo "Could not auto-resume. Run 'claude-yolo --resume' in your terminals."
+        fi
     fi
 else
     echo ""

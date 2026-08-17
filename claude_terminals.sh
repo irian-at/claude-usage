@@ -11,6 +11,22 @@ send_to_tty() {
     local tty_path="$1"
     local message="$2"
 
+    # Try tmux first: find the pane with this TTY and send keys
+    if command -v tmux &>/dev/null && tmux list-sessions &>/dev/null 2>&1; then
+        local pane_id
+        pane_id=$(tmux list-panes -a -F '#{pane_tty} #{pane_id}' 2>/dev/null | while IFS=' ' read -r pane_tty pid; do
+            if [ "$pane_tty" = "$tty_path" ]; then
+                echo "$pid"
+                break
+            fi
+        done)
+        if [ -n "$pane_id" ]; then
+            tmux send-keys -t "$pane_id" "$message" Enter
+            return 0
+        fi
+    fi
+
+    # Fall back to AppleScript for iTerm2/Terminal.app
     osascript <<ENDSCRIPT 2>/dev/null
 set targetTTY to "$tty_path"
 set sent to false
